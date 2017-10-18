@@ -195,7 +195,7 @@ p4 <- plot_ly(labels =~ Type,
 p4
 ```
 
-### 3.1 文字消息长度分布  
+### 3.1 文字消息
 ```{r text_message_length}
 textMsg <- dt %>%
     select(Des, Message, Type) %>%
@@ -233,14 +233,45 @@ receivedEmoji <- max.default.emoji("接收")
 ```
 **发送**的最长的一共`r nchar(max.message("发送"))`字的消息： 
 ```
-`r max.message("发送")`
+` max.message("发送")`
 ```
-使用最多的默认表情为 `r paste(sendEmoji[1]$Emoji, sendEmoji[1]$N)`次和 `r paste(sendEmoji[2]$Emoji, sendEmoji[2]$N)` 次  
-
----
-
 **接收**的最长的一共`r nchar(max.message("接收"))`字的消息：  
 ```
-`r max.message("接收")`
+` max.message("接收")`
 ```
-使用最多的默认表情为 `r paste(receivedEmoji[1]$Emoji, receivedEmoji[1]$N)`次和 `r paste(receivedEmoji[2]$Emoji, receivedEmoji[2]$N)` 次  
+### 3.2 系统默认表情
+```{r default_emoji}
+top <- min(nrow(sendEmoji), nrow(receivedEmoji))
+
+default.emoji.plot <- function(data, top, name) {
+    if(nrow(data) > 0) {
+        dataSub <- data[1:top, ]
+        # Order x-axis
+        dataSub$Emoji <- factor(dataSub$Emoji, 
+                                levels = dataSub$Emoji[order(dataSub$N, 
+                                                             decreasing = TRUE)])
+        p <- plot_ly(data = dataSub,
+                     x = ~Emoji,
+                     y = ~N,
+                     type = "bar",
+                     name = name,
+                     hoverinfo = "y+text",
+                     text = paste("占", name, "总默认表情的",
+                                  round(dataSub$N/sum(dataSub$N), 3) * 100, "%"),
+                     hoverlabel = list(font = list(color = 'rgb(248, 248, 255)'))
+        )
+    } else {
+        p <- "没有数据"    
+    }
+}
+
+p1 <- default.emoji.plot(sendEmoji, top, "发送")
+p2 <- default.emoji.plot(receivedEmoji, top, "接收")
+
+subplot(p1, p2) %>% 
+    layout(title = paste0("使用频度最高的",top,"个自带表情"),
+           margin = list(t = 30),
+           legend = list(orientation = "h"),
+           barmode = 'group'
+    )
+```
