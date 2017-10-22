@@ -2,18 +2,22 @@
 title: "report"
 author: "swsoyee"
 date: "2017年10月16日"
-output: html_document
+output: 
+    html_document:
+        df_print: paged
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
 ```
 
-## 微信聊天记录报告
+## 微信聊天记录报告  
+
+
 ### 1.1 检查Package安装情况并且导入
 
 ```{r package installation, message=FALSE}
-libs <- c("plotly", "data.table", "lubridate", "dplyr", "stringr")
+libs <- c("plotly", "data.table", "lubridate", "dplyr", "stringr", "tidyr")
 for (i in libs){
   if( !is.element(i, .packages(all.available = TRUE)) ) {
     install.packages(i)
@@ -109,7 +113,92 @@ p1 <- plot_ly(data = diffMsgTypedt,
 p1
 ```
 
-### 2.2 消息发送频率（总体）  
+### 2.2 消息条数热图  
+```{r message_per_day_heatmap}
+msgPerDay <- dt %>%
+    select(CreateTime, Type) %>%
+    mutate(Year = year(CreateTime), Month = month(CreateTime), Day = day(CreateTime)) %>%
+    group_by(Year, Month, Day) %>%
+    summarise(Count = n())
+
+# Data convert
+data <- spread(msgPerDay, key = Day, value = Count)
+data <- as.data.frame(data)
+data[is.na(data)] <- 0
+rownames(data) <- paste0(data$Year, "年", data$Month, "月")
+data <- as.matrix(data[,3:ncol(data)])
+#data <- data[,3:ncol(data)]
+
+# Color scale
+vals <- unique(scales::rescale(c(data)))
+o <- order(vals, decreasing = FALSE)
+cols <- scales::col_numeric("Blues", domain = NULL)(vals)
+colz <- setNames(data.frame(vals[o], cols[o]), NULL)
+colz[, 2] <- as.character(colz[,2])
+colz[colz[,1] == 0, 2] <- "#FFFFFF"
+colz[, 2] <- as.factor(colz[,2])
+
+# Hover text
+data.text <- character(0)
+for (i in 1:nrow(data)) {
+    tmp <- sapply(data[i, ], function(x) paste0("日</br></br>收发消息:", x))
+    tmp <- paste0(rownames(data)[i], colnames(data), tmp)
+    data.text <- append(data.text, tmp)
+}
+data.text <- matrix(data.text, ncol = 31, byrow = TRUE)
+
+# Weekend
+data.week <- character(0)
+for (i in 1:nrow(data)) {
+    tmp <- paste0(rownames(data)[i], colnames(data))
+    data.week <- append(data.week, tmp)
+}
+data.week <- str_replace_all(string = data.week, 
+                                pattern = "年|月", 
+                                replacement = "-")
+data.week <- as.Date(data.week)
+data.week <- weekdays(data.week)
+data.week <- matrix(data.week, ncol = 31, byrow = TRUE)
+
+# Annotation
+position.zero <- which(data == 0, TRUE)
+position.sat <- which(data.week == c("星期六"), TRUE)
+position.sun <- which(data.week == c("星期日"), TRUE)
+
+# Plot
+plot_ly(x = colnames(data),
+        y = rownames(data),
+        z = data,
+        height = 40*nrow(data),
+        showlegend = FALSE,
+        colorscale = colz,
+        type = "heatmap",
+        hoverinfo = "text",
+        text = data.text) %>%
+    layout(title = "消息数热图",
+           xaxis = list(title = "", showgrid = FALSE),
+           yaxis = list(showgrid = FALSE),
+           margin = list(t = 30, l = 80)) %>%
+    add_annotations(
+        x = position.sat[, 2],
+        y = position.sat[, 1]-1.25,
+        text = "◢",
+        font = list(color = "#08306B", size = 8),
+        xanchor = 'left',
+        showarrow = F
+    ) %>%
+    add_annotations(
+        x = position.sun[, 2],
+        y = position.sun[, 1]-1.25,
+        text = "◢",
+        font = list(color = "#08306B", size = 8),
+        xanchor = 'left',
+        showarrow = F
+    )
+```
+◢ 周末
+
+### 2.3 消息发送频率（总体）  
 
 ```{r message_per_day}
 # Time span
@@ -142,7 +231,7 @@ p2 <- plot_ly(data = msgPerHour,
 p2
 ```
 
-### 2.3 每月消息分布  
+### 2.4 每月消息分布  
 
 ```{r message_per_day_by_month}
 msgByMonth <- dt %>%
@@ -165,12 +254,12 @@ p3 <- plot_ly(data = msgByMonth,
                         showline = FALSE),
            xaxis = list(title = "月份",
                         showgrid = FALSE),
-           legend = list(x = 0.8, y = 0.9, orientation = 'h'),
+           legend = list(orientation = 'h'),
            margin = list(t = 30, b = 50))
 p3
 ```
 
-### 2.3 消息类型分布  
+### 2.5 消息类型分布  
 ```{r message_type_distrobution}
 msgType <- dt %>%
     select(Type, Des) %>%
@@ -196,7 +285,7 @@ p4
 ```
 
 ### 3.1 文字消息
-```{r text_message_length}
+```{r text_message_length, results="hold", max.print = 50}
 textMsg <- dt %>%
     select(Des, Message, Type) %>%
     filter(Type == "文字") %>%
@@ -215,10 +304,18 @@ plot_ly(data = textMsg,
            legend = list(orientation = "h"),
            margin = list(t = 30, b = 100))
 
-max.message <- function(Des) {
-    data <- textMsg[textMsg$Des == Des, ]
-    data[which.max(data$Length), ]$Message
+max.message <- function(Dest) {
+    dt <- textMsg %>%
+        filter(Des == Dest) %>%
+        arrange(desc(Length)) %>%
+        mutate(Content = ifelse(Length > 45,
+                                paste0(substr(Message, 0, 45), "..."),
+                                Message)) %>%
+        select(Length, Content)
+    dt
 }
+sendTopLenghtMsg <- max.message("发送")
+receivedTopLenghtMsg <- max.message("接收")
 
 max.default.emoji <- function(Des) {
     data <- textMsg[textMsg$Des == Des, ]
@@ -231,14 +328,11 @@ max.default.emoji <- function(Des) {
 sendEmoji <- max.default.emoji("发送")
 receivedEmoji <- max.default.emoji("接收")
 ```
-**发送**的最长的一共`r nchar(max.message("发送"))`字的消息： 
-```
-` max.message("发送")`
-```
-**接收**的最长的一共`r nchar(max.message("接收"))`字的消息：  
-```
-` max.message("接收")`
-```
+**接收**的最长的一条消息有`r receivedTopLenghtMsg[1,1]`字  
+`r receivedTopLenghtMsg`  
+**发送**的最长的一条消息有`r sendTopLenghtMsg[1,1]`字  
+`r sendTopLenghtMsg`  
+
 ### 3.2 系统默认表情
 ```{r default_emoji}
 top <- min(nrow(sendEmoji), nrow(receivedEmoji))
@@ -268,10 +362,119 @@ default.emoji.plot <- function(data, top, name) {
 p1 <- default.emoji.plot(sendEmoji, top, "发送")
 p2 <- default.emoji.plot(receivedEmoji, top, "接收")
 
-subplot(p1, p2) %>% 
+subplot(p2, p1) %>% 
     layout(title = paste0("使用频度最高的",top,"个自带表情"),
            margin = list(t = 30),
            legend = list(orientation = "h"),
            barmode = 'group'
     )
+```
+
+### 4.1 自定义表情
+#### Part.1 接收
+```{r received_emoji}
+top <- 5
+
+stickerDt <- dt %>%
+    filter(Type == "表情", Des == "接收")
+
+emojiurl <- str_extract(string = stickerDt$Message, pattern = 'cdnurl = ""(.+?)""')
+emojiurl <- str_replace_all(string = emojiurl, pattern = 'cdnurl = \"\"', replacement = "")
+emojiurl <- str_replace_all(string = emojiurl, pattern = '\"\"', replacement = "")
+
+stickerDtSm1 <- data.table(table(emojiurl)) %>% arrange(desc(N))
+
+if(nrow(stickerDtSm1) > top) {
+    topEmoji <- top
+} else {
+    topEmoji <- nrow(stickerDtSm1)
+}
+
+if(!dir.exists("emoji")){
+    dir.create("emoji")
+}
+
+
+
+```
+
+共接收自定义表情信息`r nrow(stickerDt)`条，其中非重复的表情一共有`r nrow(stickerDtSm1)`个，接收的最多的一个表情`r stickerDtSm1[1,2]`次。  
+表情包发送数目的前`r topEmoji`位如下：  
+
+```{r received_emoji_show, results='asis'}
+fileName <- paste0("emoji/",1:topEmoji,".gif")
+
+for (i in 1:topEmoji) {
+    #download.file(as.character(stickerDtSm1[i,1]), fileName[i], mode = 'wb')
+    cat("**第", i, "位: ", stickerDtSm1[i,2], "次**")
+    cat("![](",fileName[i],")\n\n")
+}
+
+```
+
+```{r send_emoji}
+top <- 5
+stickerDt <- dt %>%
+    filter(Type == "表情", Des == "发送")
+
+emojimd5 <- str_extract(string = stickerDt$Message, pattern = 'md5=""(.+?)""')
+emojimd5 <- str_replace_all(string = emojimd5, pattern = 'md5=\"\"', replacement = "")
+emojimd5 <- str_replace_all(string = emojimd5, pattern = '\"\"', replacement = "")
+
+stickerDtSm2 <- data.table(table(emojimd5)) %>% arrange(desc(N))
+
+if(nrow(stickerDtSm2) > top) {
+    topEmoji <- top
+} else {
+    topEmoji <- nrow(stickerDtSm2)
+}
+```
+#### Part.2 发送
+共发送自定义表情信息`r nrow(stickerDt)`条，其中非重复的表情一共有`r nrow(stickerDtSm2)`个，接收的最多的一个表情`r stickerDtSm2[1,2]`次。  
+
+#### Part.3 自定义表情喜好
+```{r prefer_emoji}
+p4 <- plot_ly(data = stickerDtSm1,
+        x = ~N,
+        name = "接收",
+        type = "histogram",
+        alpha = 0.7,
+        autobinx = FALSE,
+        xbins = list(start = min(stickerDtSm1$N), 
+                     end = max(stickerDtSm1$N),
+                     size = 2)) %>%
+    add_trace(data = stickerDtSm2,
+              x = ~N,
+              name = "发送") %>%
+    layout(title = "自定义表喜好分布",
+           xaxis = list(title = "单个表情发送次数"),
+           yaxis = list(title = "表情个数"),
+           barmode = "overlay",
+           margin = list(t = 30),
+           legend = list(orientation = "h"))
+
+axis_range <- ifelse(nrow(stickerDtSm1) < nrow(stickerDtSm2),
+                     quantile(stickerDtSm1$N, 0.9),
+                     quantile(stickerDtSm2$N, 0.9)
+                     )
+
+p5 <- plot_ly(data = stickerDtSm1,
+        x = ~(1:nrow(stickerDtSm1)),
+        y = ~N,
+        name = "接收",
+        type = "bar",
+        alpha = 0.6) %>%
+    add_trace(data = stickerDtSm2,
+              x = ~(1:nrow(stickerDtSm2)),
+              y = ~N,
+              name = "发送") %>%
+    layout(title = "单表情发送次数",
+           xaxis = list(visible = FALSE,
+                        range = c(0, axis_range)),
+           yaxis = list(title = "发送次数"),
+           barmode = "overlay",
+           margin = list(t = 30),
+           legend = list(orientation = "h"))
+p4
+p5
 ```
