@@ -478,3 +478,62 @@ p5 <- plot_ly(data = stickerDtSm1,
 p4
 p5
 ```
+
+### 5.1 语音视频通话  
+
+```{r video_time}
+videoMsg <- dt %>%
+    filter(Type == "语音视频")
+
+duration <- str_match_all(string = videoMsg$Message,
+                          pattern = "<duration>(.+?)</duration>")
+
+Second <- character(length(duration))
+Duration <- character(length(duration))
+
+for (i in 1:length(duration)) {
+    if(is.na(duration[[i]][2])) {
+        Second[i] <- 0
+        Duration[i] <- "0:00"
+    } else {
+        Second[i] <- as.numeric(duration[[i]][2])
+        minute <- floor(as.numeric(duration[[i]][2]) / 60)
+        second <- as.numeric(duration[[i]][2]) %% 60
+        Duration[i] <- sprintf("%01d:%02d", minute, second)
+    }
+}
+
+videoMsgSm <- videoMsg %>%
+    select(CreateTime) %>%
+    mutate(Year = format(CreateTime, "%y"), 
+           Month = format(CreateTime, "%m"),
+           Duration = Duration, 
+           Second = as.numeric(Second)) %>%
+    filter(Second > 0)
+
+plot_ly(data = videoMsgSm,
+        x = ~Month,
+        y = ~floor(Second/60),
+        type = "box",
+        boxpoints = "all",
+        jitter = 0.5,
+        pointpos = 0,
+        color = ~Month,
+        showlegend = FALSE,
+        hoverinfo = "y",
+        boxmean = TRUE) %>%
+    add_trace(x = "全部",
+              y = ~floor(Second/60),
+              color = "") %>%
+    layout(title = "每月单次语音视频消息通话时长",
+           xaxis = list(title = "月份"),
+           yaxis = list(title = "分钟"),
+           margin = list(t = 30))
+
+videoMsgSmPerMonth <- videoMsgSm %>%
+    group_by(Year, Month) %>%
+    summarise(Count = n(), Last = floor(sum(Second)/60))
+
+colnames(videoMsgSmPerMonth) <- c("年", "月", "通话次数", "通话总时长（分钟）")
+videoMsgSmPerMonth
+```
