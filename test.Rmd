@@ -477,6 +477,8 @@ if(!dir.exists("emoji")){
 fileName <- paste0("emoji/",1:topEmoji,".gif")
 
 for (i in 1:topEmoji) {
+    # 下面这句注释是为了放置测试时候重复执行下载操作，
+    # 如果想跑不同结果时候请取消注释，否则表情包不会下载更新结果
     #download.file(as.character(stickerDtSm1[i,1]), fileName[i], mode = 'wb')
     cat("**第", i, "位: ", stickerDtSm1[i,2], "次**")
     cat("![](",fileName[i],")\n\n")
