@@ -12,13 +12,13 @@ knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
 ```
 
 ## 微信聊天记录报告  
-
+本报告于`r Sys.time()`时生成。
 
 ### 1. 分析环境配置  
 #### 1.1 加载分析使用的包
 
 ```{r package installation, message=FALSE, echo=TRUE}
-libs <- c("plotly", "data.table", "lubridate", "dplyr", "stringr", "tidyr")
+libs <- c("plotly", "data.table", "lubridate", "dplyr", "stringr", "tidyr", "jiebaR", "wordcloud2", "webshot", "htmlwidgets")
 for (i in libs){
   if( !is.element(i, .packages(all.available = TRUE)) ) {
     install.packages(i)
@@ -26,12 +26,15 @@ for (i in libs){
   library(i,character.only = TRUE)
 }
 
+if(!file.exists("output")) {
+    dir.create("output")
+}
 sessionInfo()
 ```
 #### 1.2 导入聊天记录并进行数据整形
 ```{r data transvert, max.print = 50}
 
-fileUrl <- "d:/WechatLogWithGF.csv"
+fileUrl <- "d:/WechatLogWithGF1026.csv"
 dt <- fread(file = fileUrl)
 # Decoding `
 # CreateTime
@@ -345,7 +348,66 @@ receivedEmoji <- max.default.emoji("接收")
 **发送**的最长的一条消息有`r sendTopLenghtMsg[1,1]`字  
 `r sendTopLenghtMsg`  
 
-#### 3.2 系统默认表情
+#### 3.2 关键词分析
+```{r key_word}
+keyWordCal <- function(D, n) {
+    wk <- worker()
+    # Split words
+    splitWord <- wk <= textMsg[textMsg$Des == D, ]$Message
+    keys <- worker("keywords", stop_word = "dic/stop_word.txt",topn = n)
+    # Extract key words
+    tmp <- vector_keywords(splitWord,keys)
+    # Convert to data.frame
+    tmpdt <- cbind(tmp, as.numeric(names(tmp)))
+    # Edit row and column name
+    row.names(tmpdt) <- 1:nrow(tmpdt)
+    colnames(tmpdt) <- c("词汇", "TF-IDF")
+    tmpdt <- as.data.frame(tmpdt)
+    tmpdt[,2] <- as.numeric(as.character(tmpdt[,2]))
+    tmpdt[,1] <- as.character(tmpdt[,1])
+    tmpdt
+}
+
+
+sendKeyWord <- keyWordCal("发送", 300)
+sendKeyWord$`TF-IDF` <- sqrt(sendKeyWord$`TF-IDF`)^1.3
+receivedKeyWord <- keyWordCal("接收", 300)
+receivedKeyWord$`TF-IDF` <- sqrt(receivedKeyWord$`TF-IDF`)^1.3
+
+#webshot::install_phantomjs()
+receivedPNG <- "receivedWordCloud.png"
+sendPNG <- "sendWordCloud.png"
+
+receivedWordCloud <- wordcloud2(receivedKeyWord, 
+           size = 1.5, 
+           color = "random-light", 
+           fontFamily = "微软雅黑", 
+           minRotation = 0, 
+           maxRotation = 0,
+           shape = "pentagon")
+
+saveWidget(receivedWordCloud,"receivedWordCloud.html",selfcontained = F)
+
+sendWordCloud <- wordcloud2(sendKeyWord, 
+           size = 1.5, 
+           color = "random-light", 
+           fontFamily = "微软雅黑",
+           minRotation = 0, 
+           maxRotation = 0,
+           shape = "pentagon")
+
+saveWidget(sendWordCloud,"sendWordCloud.html",selfcontained = F)
+```
+**接收**的消息中的关键词  
+```{r receivedPNG, out.width='100%'}
+webshot("receivedWordCloud.html", receivedPNG, vwidth = 1300, vheight = 1000, delay = 15)
+```
+**发送**的消息中的关键词  
+```{r sendPNG, out.width='100%'}
+webshot("sendWordCloud.html", sendPNG, vwidth = 1300, vheight = 1000, delay = 15)
+```
+
+#### 3.3 系统默认表情
 ```{r default_emoji}
 top <- min(nrow(sendEmoji), nrow(receivedEmoji))
 
@@ -406,8 +468,6 @@ if(!dir.exists("emoji")){
     dir.create("emoji")
 }
 
-
-
 ```
 
 共接收自定义表情信息`r nrow(stickerDt)`条，其中非重复的表情一共有`r nrow(stickerDtSm1)`个，接收的最多的一个表情`r stickerDtSm1[1,2]`次。  
@@ -442,7 +502,7 @@ if(nrow(stickerDtSm2) > top) {
 }
 ```
 #### 4.2 发送
-共发送自定义表情信息`r nrow(stickerDt)`条，其中非重复的表情一共有`r nrow(stickerDtSm2)`个，接收的最多的一个表情`r stickerDtSm2[1,2]`次。  
+共发送自定义表情信息`r nrow(stickerDt)`条，其中非重复的表情一共有`r nrow(stickerDtSm2)`个，发送的最多的一个表情`r stickerDtSm2[1,2]`次。  
 
 #### 4.3 自定义表情喜好
 ```{r prefer_emoji}
@@ -493,6 +553,7 @@ p5
 
 ### 5. 语音视频通话分析  
 
+#### 5.1 每月通话时长
 ```{r video_time}
 videoMsg <- dt %>%
     filter(Type == "语音视频")
@@ -544,8 +605,38 @@ plot_ly(data = videoMsgSm,
 
 videoMsgSmPerMonth <- videoMsgSm %>%
     group_by(Year, Month) %>%
-    summarise(Count = n(), Last = floor(sum(Second)/60))
+    summarise(Count = n(), Last = floor(sum(Second)/60), Span = round(Last/Count))
 
-colnames(videoMsgSmPerMonth) <- c("年", "月", "通话次数", "通话总时长（分钟）")
+colnames(videoMsgSmPerMonth) <- c("年", "月", "通话次数", "通话总时长（分钟）", "平均每次通话时长（分钟）")
 videoMsgSmPerMonth
+```
+#### 5.2 通话时间段
+```{r calling_time}
+videoMsgSm$EndTime <- videoMsgSm$CreateTime + ms(videoMsgSm$Duration)
+
+videoMsgSm$Hour <- hour(videoMsgSm$CreateTime)
+videoMsgSm$Minute <- minute(videoMsgSm$CreateTime)
+
+videoMsgSm$EndHour <- hour(videoMsgSm$EndTime)
+videoMsgSm$EndMinute <- minute(videoMsgSm$EndTime)
+
+plot_ly(data = videoMsgSm,
+        x = ~as.numeric(paste0(Hour, ".", round(Minute/60*100))),
+        y = ~as.numeric(paste0(EndHour, ".", round(EndMinute/60*100))),
+        alpha = 0.5,
+        type = "scatter",
+        mode = 'markers',
+        marker = list(size = ~log(Second)),
+        hoverinfo = "text",
+        text = paste0("接通时间：",
+                      paste0(videoMsgSm$Hour, "时", videoMsgSm$Minute),
+                      "分</br></br>挂断时间：",
+                      paste0(videoMsgSm$EndHour, "时", videoMsgSm$EndMinute),
+                      "分</br></br>通话时长：",
+                      videoMsgSm$Duration)
+        ) %>%
+    layout(title = "通话时间分布图",
+           xaxis = list(title = "接通时间", range = c(-1, 24.9)),
+           yaxis = list(title = "挂断时间", range = c(-1, 24.9)),
+           margin = list(t = 30))
 ```
